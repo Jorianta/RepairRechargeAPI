@@ -1,51 +1,84 @@
-using System;
-using System.Linq;
-using System.Reflection.Emit;
-using BepInEx;
-using Newtonsoft.Json.Utilities;
-using R2API;
-using R2API.Utils;
+using System.Collections.Generic;
+using EntityStates.RoboBallBoss.Weapon;
+using IL.RoR2.ContentManagement;
 using RepairRechargeAPI.classes;
 using RoR2;
 using UnityEngine;
+using UnityEngine.AddressableAssets;
 
 namespace RepairRechargeAPI
 {
-    public static class BreakableItemManager
+    public class BreakableItemManager : TransformationRelationshipManager
     {
-        private static BreakableItemRelationships breakableHandler;
 
-        public static void Init()
+        public static ItemRelationshipType BreakableItemRelationship
         {
-            breakableHandler = new();
+            get => breakableHandler.itemRelationshipType;
         }
+        private static BreakableItemManager breakableHandler;
+        public static readonly ItemTransformationTypeIndex BreakTransformation = 0;
+        //NOTE THIS IS THE SAME TYPE AS RECHARGING, BECAUSE THERE IS NOT A VANILLA TYPE FOR REPAIRING
+        public static readonly ItemTransformationTypeIndex RepairTransformation = (ItemTransformationTypeIndex)7;
 
-        //unconsumed, then consumed
-        public static void AddItemRelationship(ItemDef.Pair[] relationships)
+        public static void Init(ItemRelationshipType itemRelationshipType)
         {
-            breakableHandler.addRelationship(relationships);
-        }
-        public static void AddItemRelationship(ItemDef unbroken, ItemDef broken)
-        {
-            breakableHandler.addRelationship(unbroken, broken);
+            breakableHandler = new(itemRelationshipType);
         }
 
-        public static ItemDef GetBrokenItem(ItemDef item)
+        protected BreakableItemManager(ItemRelationshipType itemRelationship) : base(itemRelationship){}
+
+       internal static ItemRelationshipProvider GetVanillaRelationships()
         {
-            return breakableHandler.GetConsumed(item);
+            ItemDef dio = Addressables.LoadAssetAsync<ItemDef>("RoR2/Base/ExtraLife/ExtraLife.asset").WaitForCompletion();
+            ItemDef dioConsumed = Addressables.LoadAssetAsync<ItemDef>("RoR2/Base/ExtraLife/ExtraLifeConsumed.asset").WaitForCompletion();
+
+            ItemDef watch = Addressables.LoadAssetAsync<ItemDef>("RoR2/DLC1/FragileDamageBonus/FragileDamageBonus.asset").WaitForCompletion();
+            ItemDef watchConsumed = Addressables.LoadAssetAsync<ItemDef>("RoR2/DLC1/FragileDamageBonus/FragileDamageBonusConsumed.asset").WaitForCompletion();
+
+            ItemDef potion = Addressables.LoadAssetAsync<ItemDef>("RoR2/DLC1/HealingPotion/HealingPotion.asset").WaitForCompletion();
+            ItemDef potionConsumed = Addressables.LoadAssetAsync<ItemDef>("RoR2/DLC1/HealingPotion/HealingPotionConsumed.asset").WaitForCompletion();
+
+            ItemDef larva = Addressables.LoadAssetAsync<ItemDef>("RoR2/DLC1/ExtraLifeVoid/ExtraLifeVoid.asset").WaitForCompletion();
+            ItemDef larvaConsumed = Addressables.LoadAssetAsync<ItemDef>("RoR2/DLC1/ExtraLifeVoid/ExtraLifeVoidConsumed.asset").WaitForCompletion();
+
+            ItemRelationshipProvider itemRelationshipProvider = breakableHandler.createProvider(
+                "VANILLA_BREAKABLERELATIONSHIPS",
+                [
+                    new(){itemDef1 = dio, itemDef2 = dioConsumed},
+                    new(){itemDef1 = watch, itemDef2 = watchConsumed},
+                    new(){itemDef1 = potion, itemDef2 = potionConsumed},
+                    new(){itemDef1 = larva, itemDef2 = larvaConsumed}
+                ]
+
+            );
+            return itemRelationshipProvider;
         }
-        public static ItemDef GetFixedItem(ItemDef item)
+
+        public static List<ItemIndex> ListUnbrokenStacks(Inventory inventory)
         {
-            return breakableHandler.GetUnconsumed(item);
+            return breakableHandler.ListTransformableStacks(inventory);
+        }
+        public static List<ItemIndex> ListBrokenStacks(Inventory inventory)
+        {
+            return breakableHandler.ListTransformedStacks(inventory);
+        }
+
+        public static ItemIndex GetBrokenItem(ItemIndex item)
+        {
+            return breakableHandler.GetTransformed(item);
+        }
+        public static ItemIndex GetFixedItem(ItemIndex item)
+        {
+            return breakableHandler.GetUntransformed(item);
         }
         
-        public static int BreakItem(Inventory inventory, ItemDef item, int limit)
+        public static int BreakItem(Inventory inventory, ItemIndex item, int limit, bool allowTemp = false)
         {
-            return breakableHandler.Consume(inventory, item, limit);
+            return breakableHandler.Transform(inventory, item, limit, allowTemp);
         }
-        public static int FixItem(Inventory inventory, ItemDef item, int limit)
+        public static int FixItem(Inventory inventory, ItemIndex item, int limit, bool allowTemp = false)
         {
-            return breakableHandler.Restore(inventory, item, limit);
+            return breakableHandler.Restore(inventory, item, limit, allowTemp);
         }
     }
 }

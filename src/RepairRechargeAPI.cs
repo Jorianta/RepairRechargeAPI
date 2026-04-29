@@ -1,6 +1,8 @@
 using System;
 using System.Linq;
+using System.Reflection;
 using BepInEx;
+using IL.RoR2.ContentManagement;
 using Newtonsoft.Json.Utilities;
 using R2API;
 using R2API.Utils;
@@ -23,71 +25,73 @@ namespace RepairRechargeAPI
         public const string PluginGUID = PluginAuthor + "." + PluginName;
         public const string PluginAuthor = "Braquen";
         public const string PluginName = "Repair_Recharge_API";
-        public const string PluginVersion = "1.0.1";
-
+        public const string PluginVersion = "1.0.0";
         public static BepInEx.PluginInfo pluginInfo;
 
-        internal static AssetBundle assetBundle;
-        internal static string assetBundleDir => System.IO.Path.Combine(System.IO.Path.GetDirectoryName(pluginInfo.Location), "repairrechargeassets");
-
-        private static BreakableItemRelationships breakableHandler;
-        private static RechargeableItemRelationships rechargeableHandler;
-
+        internal static AssetBundle assets;
+     
         public void Awake()
-        {
-            breakableHandler = new();
-            rechargeableHandler = new();
+        {   
+            Log.Init(Logger);
+            
+            Log.Debug("Loading Item Relationship Types");
+            using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("RepairRechargeAPI.itemrelationships.bundle"))
+            {
+                assets = AssetBundle.LoadFromStream(stream);
+            }
+
+            RepairRechargeAPIContent.Init();
+
+            // test();
         }
 
-        public static void AddBreakableItemRelationship(ItemDef.Pair[] relationships)
-        {
-            breakableHandler.addRelationship(relationships);
-        }
-        public static void AddBreakableItemRelationship(ItemDef unbroken, ItemDef broken)
-        {
-            breakableHandler.addRelationship(unbroken, broken);
-        }
-        public static void AddRechargeableItemRelationship(ItemDef.Pair[] relationships)
-        {
-            rechargeableHandler.addRelationship(relationships);
-        }
-        public static void AddRechargeableItemRelationship(ItemDef charged, ItemDef consumed)
-        {
-            rechargeableHandler.addRelationship(charged, consumed);
-        }  
 
-        public static ItemDef GetBroken(ItemDef item)
+        private static void test()
         {
-            return breakableHandler.GetConsumed(item);
-        }
-        public static ItemDef GetFixed(ItemDef item)
-        {
-            return breakableHandler.GetUnconsumed(item);
-        }
-        public static ItemDef GetUncharged(ItemDef item)
-        {
-            return rechargeableHandler.GetConsumed(item);
-        }
-        public static ItemDef GetCharged(ItemDef item)
-        {
-            return rechargeableHandler.GetUnconsumed(item);
-        }
+            On.RoR2.CharacterMaster.OnServerStageBegin += (o,master,stage) =>
+            {
+                o(master,stage);
 
-        public static int BreakItem(CharacterMaster master, ItemDef item, int count, bool targetTemporary = false)
-        {
-            return breakableHandler.Consume(master.inventory,item, count, targetTemporary);
-        }
-        public static int DischargeItem(CharacterMaster master, ItemDef item, int count, bool targetTemporary = false)
-        {
-            return rechargeableHandler.Consume(master.inventory,item, count, targetTemporary);
-        }
-        public static int RepairItem(CharacterMaster master, ItemDef item, int count, bool targetTemporary = false)
-        {
-            return breakableHandler.Restore(master.inventory,item, count, targetTemporary);
-        }
-        public static int RechargeItem(CharacterMaster master, ItemDef item, int count, bool targetTemporary = false)
-        {
-            return rechargeableHandler.Restore(master.inventory,item, count, targetTemporary);
+
+                var targets = BreakableItemManager.ListBrokenStacks(master.inventory);
+
+                foreach (var item in targets)
+                {
+                    BreakableItemManager.FixItem(master.inventory, item, master.inventory.GetItemCountEffective(item));
+                }
+            };
+
+            On.RoR2.GlobalEventManager.ProcessHitEnemy += (o,globalevtmanager,damageInfo,victim) =>
+            {
+                o(globalevtmanager,damageInfo,victim);
+
+                if(! (victim?.TryGetComponent(out CharacterBody victimBody) ?? false) || ! victimBody.inventory ) return;
+
+                var targets = BreakableItemManager.ListUnbrokenStacks(victimBody.inventory);
+
+                if(targets.Count() <= 0) return;
+
+                Util.ShuffleList(targets);
+
+                BreakableItemManager.BreakItem(victimBody.inventory, targets[0], 3);
+
+                
+            };
+
+            On.RoR2.GlobalEventManager.ProcessHitEnemy += (o,globalevtmanager,damageInfo,victim) =>
+            {
+                o(globalevtmanager,damageInfo,victim);
+
+                if(! (damageInfo?.attacker?.TryGetComponent(out CharacterBody attackerBody) ?? false) || ! attackerBody.inventory ) return;
+
+                var targets = BreakableItemManager.ListBrokenStacks(attackerBody.inventory);
+                
+                if(targets.Count() <= 0) return;
+
+                Util.ShuffleList(targets);
+
+                BreakableItemManager.FixItem(attackerBody.inventory, targets[0], 3);
+            };
         }
     }
 }
